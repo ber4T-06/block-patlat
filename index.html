@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Blok Patlat</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap">
+<style>
+:root{--bg:#f1eefb;--panel:#ddd7f3;--cell:#cbc3ec;--text:#2a2150;--muted:#6f66a0;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14112b;--panel:#211c45;--cell:#2e2860;--text:#f1eeff;--muted:#9a92cf}}
+:root[data-theme="dark"]{--bg:#14112b;--panel:#211c45;--cell:#2e2860;--text:#f1eeff;--muted:#9a92cf}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font-family:'Fredoka',system-ui,sans-serif;display:flex;justify-content:center;overscroll-behavior:none;user-select:none;-webkit-user-select:none}
+#app{width:min(92vw,440px,max(260px,calc(100dvh - 250px)));display:flex;flex-direction:column;gap:14px;padding:12px 0}
+header{display:flex;justify-content:space-between;align-items:flex-end}
+h1{margin:0;font-size:28px;font-weight:700;letter-spacing:.2px}
+.scores{display:flex;gap:18px;text-align:right}
+.scores span{display:block;font-size:12px;color:var(--muted)}
+.scores b{font-size:26px;font-weight:700;line-height:1}
+#wrap{position:relative}
+#board{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;padding:6px;background:var(--panel);border-radius:16px;aspect-ratio:1}
+.cell{aspect-ratio:1;border-radius:22%;background:var(--cell)}
+.cell[class*=" k"]{box-shadow:inset 0 -3px 0 rgba(0,0,0,.2),inset 0 2px 0 rgba(255,255,255,.35)}
+.k1{background:#ff5d73}.k2{background:#ffb703}.k3{background:#3ddc97}.k4{background:#4cc9f0}.k5{background:#a78bfa}.k6{background:#ff8fd8}.k7{background:#fb8b24}
+.cell.pv{opacity:.5;outline:2px solid rgba(255,255,255,.6);outline-offset:-2px}
+.cell.clr{animation:clr .26s ease-in forwards}
+@keyframes clr{40%{filter:brightness(1.6)}to{transform:scale(.1);opacity:0}}
+#tray{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.slot{height:calc(var(--t,24px)*3 + 30px);display:flex;align-items:center;justify-content:center;touch-action:none;cursor:grab;border-radius:14px}
+.hint{margin:0;text-align:center;font-size:13px;color:var(--muted)}
+#ghost{position:fixed;left:0;top:0;pointer-events:none;z-index:9;filter:drop-shadow(0 8px 10px rgba(0,0,0,.35))}
+#over{position:absolute;inset:0;border-radius:16px;background:rgba(20,17,43,.9);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+#over h2{margin:0;font-size:30px}
+#over p{margin:0 0 10px;font-size:18px}
+button{font:inherit;font-weight:700;font-size:18px;padding:10px 24px;border:0;border-radius:999px;background:#ffb703;color:#2a2150;cursor:pointer}
+button:focus-visible{outline:3px solid #fff;outline-offset:3px}
+#msg{position:absolute;left:50%;top:42%;transform:translate(-50%,0);font-size:26px;font-weight:700;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.6);pointer-events:none;white-space:nowrap;opacity:0}
+#msg.show{animation:msg 1s ease-out}
+@keyframes msg{0%{opacity:0;transform:translate(-50%,12px) scale(.8)}20%{opacity:1;transform:translate(-50%,0) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-22px)}}
+@media (prefers-reduced-motion:reduce){.cell.clr,#msg.show{animation:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Blok Patlat</h1>
+    <div class="scores"><div><span>Skor</span><b id="score">0</b></div><div><span>En iyi</span><b id="best">0</b></div></div>
+  </header>
+  <div id="wrap">
+    <div id="board"></div>
+    <div id="msg"></div>
+    <div id="over" hidden><h2>Oyun bitti</h2><p>Skorun: <b id="final">0</b></p><button id="again">Yeniden oyna</button></div>
+  </div>
+  <div id="tray"></div>
+  <p class="hint">Parçaları tahtaya sürükle. Dolu satır ve sütunlar patlar.</p>
+</div>
+<script>
+(()=>{
+const N=8,G=3,$=id=>document.getElementById(id);
+const base=['X','XX','XXX','XXXX','XXXXX','XX/XX','XXX/XXX/XXX','XXX/XXX','X./XX','XX./.XX','XXX/.X.','X../X../XXX'];
+const parse=s=>{const a=[];s.split('/').forEach((row,r)=>[...row].forEach((ch,c)=>{if(ch==='X')a.push([r,c])}));return a};
+const norm=a=>{const mr=Math.min(...a.map(p=>p[0])),mc=Math.min(...a.map(p=>p[1]));return a.map(p=>[p[0]-mr,p[1]-mc]).sort((x,y)=>x[0]-y[0]||x[1]-y[1])};
+const rot=a=>norm(a.map(([r,c])=>[c,-r]));
+const groups=[];
+base.forEach((s,bi)=>{let a=norm(parse(s));const seen=new Set(),list=[];for(let k=0;k<4;k++){const key=JSON.stringify(a);if(!seen.has(key)){seen.add(key);list.push({a,col:bi%7+1})}a=rot(a)}groups.push(list)});
+const rnd=()=>{const l=groups[Math.random()*groups.length|0];return l[Math.random()*l.length|0]};
+
+let g,score,best=0,pieces,pv=new Set(),pvk=1,clearing=new Set(),over=false,streak=0,drag=null,busy=false;
+try{best=+localStorage.getItem('bb-best')||0}catch(e){}
+const board=$('board'),cells=[];
+for(let i=0;i<64;i++){const d=document.createElement('div');d.className='cell';board.appendChild(d);cells.push(d)}
+const sz=()=>cells[0].getBoundingClientRect().width;
+
+function draw(){
+  for(let i=0;i<64;i++){
+    const v=g[i>>3][i&7];let c='cell';
+    if(v)c+=' k'+v;else if(pv.has(i))c+=' pv k'+pvk;
+    if(clearing.has(i))c+=' clr';
+    cells[i].className=c;
+  }
+  $('score').textContent=score;$('best').textContent=best;
+}
+function mk(p,s,gap){
+  const w=Math.max(...p.a.map(q=>q[1]))+1,h=Math.max(...p.a.map(q=>q[0]))+1;
+  const d=document.createElement('div');
+  d.style.cssText='display:grid;gap:'+gap+'px;grid-template-columns:repeat('+w+','+s+'px);grid-auto-rows:'+s+'px';
+  p.a.forEach(([r,c])=>{const e=document.createElement('div');e.className='cell k'+p.col;e.style.gridRow=r+1;e.style.gridColumn=c+1;d.appendChild(e)});
+  d._w=w;d._h=h;return d;
+}
+function tray(){
+  const t=$('tray'),ts=Math.max(12,sz()*.5);
+  document.documentElement.style.setProperty('--t',ts+'px');
+  t.innerHTML='';
+  pieces.forEach((p,i)=>{
+    const s=document.createElement('div');s.className='slot';
+    if(p){s.appendChild(mk(p,ts,2));s.addEventListener('pointerdown',e=>start(e,i))}
+    t.appendChild(s);
+  });
+}
+const fits=(a,r,c)=>a.every(([y,x])=>{const rr=r+y,cc=c+x;return rr>=0&&rr<N&&cc>=0&&cc<N&&!g[rr][cc]});
+function anyFit(p){for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(fits(p.a,r,c))return true;return false}
+
+function start(e,i){
+  if(over||busy||!pieces[i])return;
+  e.preventDefault();
+  const p=pieces[i],gh=mk(p,sz(),G);
+  gh.id='ghost';document.body.appendChild(gh);
+  drag={i,p,gh,w:gh._w,h:gh._h,off:e.pointerType==='mouse'?24:64,at:null};
+  $('tray').children[i].firstChild.style.opacity=.25;
+  move(e);
+}
+function move(e){
+  if(!drag)return;
+  const s=sz(),pitch=s+G,gw=drag.w*pitch-G,gh=drag.h*pitch-G;
+  const L=e.clientX-gw/2,T=e.clientY-gh/2-drag.off;
+  drag.gh.style.transform='translate('+L+'px,'+T+'px)';
+  const r0=cells[0].getBoundingClientRect();
+  const c=Math.round((L-r0.left)/pitch),r=Math.round((T-r0.top)/pitch);
+  pv=new Set();
+  if(fits(drag.p.a,r,c)){drag.p.a.forEach(([y,x])=>pv.add((r+y)*8+c+x));pvk=drag.p.col;drag.at=[r,c]}else drag.at=null;
+  draw();
+}
+function end(){
+  if(!drag)return;
+  const d=drag;drag=null;d.gh.remove();pv=new Set();
+  if(d.at)place(d.i,d.at[0],d.at[1]);else{tray();draw()}
+}
+addEventListener('pointermove',move);
+addEventListener('pointerup',end);
+addEventListener('pointercancel',end);
+
+function place(i,r,c){
+  const p=pieces[i];
+  p.a.forEach(([y,x])=>g[r+y][c+x]=p.col);
+  pieces[i]=null;score+=p.a.length;
+  const full=new Set();let lines=0;
+  for(let y=0;y<N;y++)if(g[y].every(v=>v)){lines++;for(let x=0;x<N;x++)full.add(y*8+x)}
+  for(let x=0;x<N;x++){let ok=true;for(let y=0;y<N;y++)if(!g[y][x])ok=false;if(ok){lines++;for(let y=0;y<N;y++)full.add(y*8+x)}}
+  if(!lines){streak=0;after();return}
+  streak++;
+  const pts=lines*lines*10+(streak>1?streak*5:0);
+  score+=pts;
+  say((lines>1?lines+' sıra patladı!':'Patladı!')+' +'+pts+(streak>1?'  ×'+streak+' seri':''));
+  busy=true;clearing=full;draw();
+  setTimeout(()=>{full.forEach(k=>g[k>>3][k&7]=0);clearing=new Set();busy=false;after()},260);
+}
+function after(){
+  if(score>best){best=score;try{localStorage.setItem('bb-best',best)}catch(e){}}
+  if(pieces.every(p=>!p))pieces=[rnd(),rnd(),rnd()];
+  tray();draw();
+  if(!pieces.some(p=>p&&anyFit(p))){over=true;$('final').textContent=score;$('over').hidden=false}
+}
+function say(t){const m=$('msg');m.textContent=t;m.classList.remove('show');void m.offsetWidth;m.classList.add('show')}
+function newGame(){
+  g=Array.from({length:N},()=>Array(N).fill(0));
+  score=0;streak=0;over=false;busy=false;clearing=new Set();
+  $('over').hidden=true;
+  pieces=[rnd(),rnd(),rnd()];tray();draw();
+}
+$('again').addEventListener('click',newGame);
+addEventListener('resize',()=>{if(!drag)tray()});
+newGame();
+})();
+</script>
+</body>
+</html>
