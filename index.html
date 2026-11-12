@@ -2,17 +2,25 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Blok Patlat">
+<meta name="theme-color" content="#14112b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>Blok Patlat</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap">
 <style>
 :root{--bg:#f1eefb;--panel:#ddd7f3;--cell:#cbc3ec;--text:#2a2150;--muted:#6f66a0;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14112b;--panel:#211c45;--cell:#2e2860;--text:#f1eeff;--muted:#9a92cf}}
 :root[data-theme="dark"]{--bg:#14112b;--panel:#211c45;--cell:#2e2860;--text:#f1eeff;--muted:#9a92cf}
 [hidden]{display:none!important}
-html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--text);font-family:'Fredoka',system-ui,sans-serif;display:flex;justify-content:center;overscroll-behavior:none;user-select:none;-webkit-user-select:none}
-#app{width:min(92vw,440px,max(260px,calc(100dvh - 250px)));display:flex;flex-direction:column;gap:14px;padding:12px 0}
+html{background:var(--bg)}
+html,body{height:100%;margin:0;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-weight:600;display:flex;justify-content:center;align-items:center;overscroll-behavior:none;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+#app{width:min(92vw,520px,max(240px,calc(100dvh - 260px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))));display:flex;flex-direction:column;gap:14px;padding:12px 0}
 header{display:flex;justify-content:space-between;align-items:flex-end}
 h1{margin:0;font-size:28px;font-weight:700;letter-spacing:.2px}
 .scores{display:flex;gap:18px;text-align:right}
@@ -38,22 +46,42 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 #msg{position:absolute;left:50%;top:42%;transform:translate(-50%,0);font-size:26px;font-weight:700;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.6);pointer-events:none;white-space:nowrap;opacity:0}
 #msg.show{animation:msg 1s ease-out}
 @keyframes msg{0%{opacity:0;transform:translate(-50%,12px) scale(.8)}20%{opacity:1;transform:translate(-50%,0) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-22px)}}
+#menu{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px}
+#rec{position:absolute;left:16px;top:calc(env(safe-area-inset-top,0px) + 16px);background:var(--panel);border-radius:14px;padding:8px 14px;line-height:1.1}
+#rec span{display:block;font-size:12px;color:var(--muted)}
+#rec b{font-size:24px}
+.logo{text-align:center;font-size:clamp(44px,15vw,72px);font-weight:700;line-height:.95;letter-spacing:1px}
+.logo i{display:block;font-style:normal;color:#ff5d73}
+.deco{display:flex;gap:8px;justify-content:center;margin-top:16px}
+.deco .cell{width:clamp(26px,8vw,38px);box-shadow:inset 0 -3px 0 rgba(0,0,0,.2),inset 0 2px 0 rgba(255,255,255,.35)}
+#play{font-size:clamp(28px,8vw,38px);padding:16px 64px;background:#3ddc97;color:#10392a;box-shadow:0 7px 0 #1f9a68,0 12px 18px rgba(0,0,0,.3);letter-spacing:2px}
+#play:active{transform:translateY(5px);box-shadow:0 2px 0 #1f9a68}
+.ttl{display:flex;align-items:center;gap:10px}
+#home{width:38px;height:38px;padding:0;font-size:20px;background:var(--panel);color:var(--text)}
+#tomenu{background:transparent;color:#fff;border:2px solid rgba(255,255,255,.5);font-size:16px;margin-top:6px}
+@media (max-height:600px){.hint{display:none}}
 @media (prefers-reduced-motion:reduce){.cell.clr,#msg.show{animation:none}}
 </style>
 </head>
 <body>
 <div id="app">
   <header>
-    <h1>Blok Patlat</h1>
+    <div class="ttl"><button id="home" aria-label="Ana menü">⌂</button><h1>Blok Patlat</h1></div>
     <div class="scores"><div><span>Skor</span><b id="score">0</b></div><div><span>En iyi</span><b id="best">0</b></div></div>
   </header>
   <div id="wrap">
     <div id="board"></div>
     <div id="msg"></div>
-    <div id="over" hidden><h2>Oyun bitti</h2><p>Skorun: <b id="final">0</b></p><button id="again">Yeniden oyna</button></div>
+    <div id="over" hidden><h2>Oyun bitti</h2><p>Skorun: <b id="final">0</b></p><button id="again">Yeniden oyna</button><button id="tomenu">Ana menü</button></div>
   </div>
   <div id="tray"></div>
   <p class="hint">Parçaları tahtaya sürükle. Dolu satır ve sütunlar patlar.</p>
+</div>
+<div id="menu">
+  <div id="rec"><span>🏆 Rekor</span><b id="mbest">0</b></div>
+  <div><div class="logo">BLOK<i>PATLAT</i></div>
+  <div class="deco"><div class="cell k1"></div><div class="cell k2"></div><div class="cell k3"></div><div class="cell k4"></div></div></div>
+  <button id="play">OYNA</button>
 </div>
 <script>
 (()=>{
@@ -64,10 +92,17 @@ const norm=a=>{const mr=Math.min(...a.map(p=>p[0])),mc=Math.min(...a.map(p=>p[1]
 const rot=a=>norm(a.map(([r,c])=>[c,-r]));
 const groups=[];
 base.forEach((s,bi)=>{let a=norm(parse(s));const seen=new Set(),list=[];for(let k=0;k<4;k++){const key=JSON.stringify(a);if(!seen.has(key)){seen.add(key);list.push({a,col:bi%7+1})}a=rot(a)}groups.push(list)});
-const rnd=()=>{const l=groups[Math.random()*groups.length|0];return l[Math.random()*l.length|0]};
+const W=[3,4,4,2,1,4,1,2,4,2,2,1],TOT=W.reduce((a,b)=>a+b,0);
+const rnd=()=>{let r=Math.random()*TOT,i=0;while(r>=W[i]){r-=W[i];i++}const l=groups[i];return l[Math.random()*l.length|0]};
+function deal(){let p;for(let k=0;k<30;k++){p=[rnd(),rnd(),rnd()];if(p.filter(anyFit).length>=2)break}return p}
 
 let g,score,best=0,pieces,pv=new Set(),pvk=1,clearing=new Set(),over=false,streak=0,drag=null,busy=false;
-try{best=+localStorage.getItem('bb-best')||0}catch(e){}
+const NP=!!(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform());
+const PL=NP&&Capacitor.Plugins?Capacitor.Plugins:{};
+const buzz=st=>{try{PL.Haptics?PL.Haptics.impact({style:st}):navigator.vibrate&&navigator.vibrate(st==='LIGHT'?8:25)}catch(e){}};
+function saveBest(){try{localStorage.setItem('bb-best',best)}catch(e){}try{PL.Preferences&&PL.Preferences.set({key:'bb-best',value:String(best)})}catch(e){}}
+async function loadBest(){let b=0;try{b=+localStorage.getItem('bb-best')||0}catch(e){}try{if(PL.Preferences){const r=await PL.Preferences.get({key:'bb-best'});b=Math.max(b,+r.value||0)}}catch(e){}if(b>best){best=b;if(g)draw()}}
+try{if(NP&&PL.StatusBar){const d=matchMedia('(prefers-color-scheme: dark)').matches;PL.StatusBar.setStyle({style:d?'DARK':'LIGHT'});PL.StatusBar.setBackgroundColor({color:d?'#14112b':'#f1eefb'}).catch(()=>{})}}catch(e){}
 const board=$('board'),cells=[];
 for(let i=0;i<64;i++){const d=document.createElement('div');d.className='cell';board.appendChild(d);cells.push(d)}
 const sz=()=>cells[0].getBoundingClientRect().width;
@@ -79,7 +114,7 @@ function draw(){
     if(clearing.has(i))c+=' clr';
     cells[i].className=c;
   }
-  $('score').textContent=score;$('best').textContent=best;
+  $('score').textContent=score;$('best').textContent=best;$('mbest').textContent=best;
 }
 function mk(p,s,gap){
   const w=Math.max(...p.a.map(q=>q[1]))+1,h=Math.max(...p.a.map(q=>q[0]))+1;
@@ -133,12 +168,12 @@ addEventListener('pointercancel',end);
 function place(i,r,c){
   const p=pieces[i];
   p.a.forEach(([y,x])=>g[r+y][c+x]=p.col);
-  pieces[i]=null;score+=p.a.length;
+  pieces[i]=null;score+=p.a.length;buzz('LIGHT');
   const full=new Set();let lines=0;
   for(let y=0;y<N;y++)if(g[y].every(v=>v)){lines++;for(let x=0;x<N;x++)full.add(y*8+x)}
   for(let x=0;x<N;x++){let ok=true;for(let y=0;y<N;y++)if(!g[y][x])ok=false;if(ok){lines++;for(let y=0;y<N;y++)full.add(y*8+x)}}
   if(!lines){streak=0;after();return}
-  streak++;
+  streak++;buzz('MEDIUM');
   const pts=lines*lines*10+(streak>1?streak*5:0);
   score+=pts;
   say((lines>1?lines+' sıra patladı!':'Patladı!')+' +'+pts+(streak>1?'  ×'+streak+' seri':''));
@@ -146,21 +181,26 @@ function place(i,r,c){
   setTimeout(()=>{full.forEach(k=>g[k>>3][k&7]=0);clearing=new Set();busy=false;after()},260);
 }
 function after(){
-  if(score>best){best=score;try{localStorage.setItem('bb-best',best)}catch(e){}}
-  if(pieces.every(p=>!p))pieces=[rnd(),rnd(),rnd()];
+  if(score>best){best=score;saveBest()}
+  if(pieces.every(p=>!p))pieces=deal();
   tray();draw();
-  if(!pieces.some(p=>p&&anyFit(p))){over=true;$('final').textContent=score;$('over').hidden=false}
+  if(!pieces.some(p=>p&&anyFit(p))){over=true;buzz('HEAVY');$('final').textContent=score;$('over').hidden=false}
 }
 function say(t){const m=$('msg');m.textContent=t;m.classList.remove('show');void m.offsetWidth;m.classList.add('show')}
 function newGame(){
   g=Array.from({length:N},()=>Array(N).fill(0));
   score=0;streak=0;over=false;busy=false;clearing=new Set();
   $('over').hidden=true;
-  pieces=[rnd(),rnd(),rnd()];tray();draw();
+  pieces=deal();tray();draw();
 }
 $('again').addEventListener('click',newGame);
+const showMenu=()=>{$('over').hidden=true;$('menu').hidden=false};
+$('play').addEventListener('click',()=>{$('menu').hidden=true;newGame()});
+$('home').addEventListener('click',showMenu);
+$('tomenu').addEventListener('click',showMenu);
+['contextmenu','gesturestart','dblclick'].forEach(t=>addEventListener(t,e=>e.preventDefault()));
 addEventListener('resize',()=>{if(!drag)tray()});
-newGame();
+newGame();loadBest();
 })();
 </script>
 </body>
