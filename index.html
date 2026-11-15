@@ -143,17 +143,47 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 <script>
 (()=>{
 const N=8,G=3,$=id=>document.getElementById(id);
-const base=['X','XX','XXX','XXXX','XXXXX','XX/XX','XXX/XXX/XXX','XXX/XXX','X./XX','XX./.XX','XXX/.X.','X../X../XXX'];
+/*CORE:START*/
+// Oyun mantığı: tarayıcı VE sunucu AYNI kodu çalıştırır (sunucu skoru bu kodla yeniden hesaplar).
+// Değiştirirsen: `npm run sync-core` ile www/index.html içine kopyala ve `npm test` çalıştır.
+const SZ=8;
+const BASE=['X','XX','XXX','XXXX','XXXXX','XX/XX','XXX/XXX/XXX','XXX/XXX','X./XX','XX./.XX','XXX/.X.','X../X../XXX'];
 const parse=s=>{const a=[];s.split('/').forEach((row,r)=>[...row].forEach((ch,c)=>{if(ch==='X')a.push([r,c])}));return a};
 const norm=a=>{const mr=Math.min(...a.map(p=>p[0])),mc=Math.min(...a.map(p=>p[1]));return a.map(p=>[p[0]-mr,p[1]-mc]).sort((x,y)=>x[0]-y[0]||x[1]-y[1])};
 const rot=a=>norm(a.map(([r,c])=>[c,-r]));
-const groups=[];
-base.forEach((s,bi)=>{let a=norm(parse(s));const seen=new Set(),list=[];for(let k=0;k<4;k++){const key=JSON.stringify(a);if(!seen.has(key)){seen.add(key);list.push({a,col:bi%7+1})}a=rot(a)}groups.push(list)});
+const GROUPS=[];
+BASE.forEach((s,bi)=>{let a=norm(parse(s));const seen=new Set(),list=[];for(let k=0;k<4;k++){const key=JSON.stringify(a);if(!seen.has(key)){seen.add(key);list.push({a,col:bi%7+1})}a=rot(a)}GROUPS.push(list)});
 const W=[4,5,5,2,1,5,1,2,5,2,2,1],TOT=W.reduce((a,b)=>a+b,0);
-const rnd=()=>{let r=Math.random()*TOT,i=0;while(r>=W[i]){r-=W[i];i++}const l=groups[i];return l[Math.random()*l.length|0]};
-function deal(){let best=null,bn=-1;for(let k=0;k<40;k++){const p=[rnd(),rnd(),rnd()],n=p.filter(anyFit).length;if(n>bn){bn=n;best=p}if(n===3)break}return best}
+function rngNext(R){R.s=(R.s+0x6D2B79F5)|0;let t=Math.imul(R.s^(R.s>>>15),1|R.s);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296}
+function rnd(R){let r=rngNext(R)*TOT,i=0;while(r>=W[i]){r-=W[i];i++}const l=GROUPS[i];return l[rngNext(R)*l.length|0]}
+const fitsAt=(g,a,r,c)=>a.every(([y,x])=>{const rr=r+y,cc=c+x;return rr>=0&&rr<SZ&&cc>=0&&cc<SZ&&!g[rr][cc]});
+function anyFitAt(g,p){for(let r=0;r<SZ;r++)for(let c=0;c<SZ;c++)if(fitsAt(g,p.a,r,c))return true;return false}
+function deal(R,g){let best=null,bn=-1;for(let k=0;k<40;k++){const p=[rnd(R),rnd(R),rnd(R)],n=p.filter(q=>anyFitAt(g,q)).length;if(n>bn){bn=n;best=p}if(n===3)break}return best}
+class Game{
+  constructor(seed){this.R={s:seed|0};this.g=Array.from({length:SZ},()=>Array(SZ).fill(0));this.score=0;this.streak=0;this.miss=0;this.over=false;this.pieces=deal(this.R,this.g)}
+  move(i,r,c){
+    const p=this.pieces[i];
+    if(this.over||!p||!Number.isInteger(r)||!Number.isInteger(c)||!fitsAt(this.g,p.a,r,c))return null;
+    const g=this.g;p.a.forEach(([y,x])=>g[r+y][c+x]=p.col);this.pieces[i]=null;this.score+=p.a.length*2;
+    const full=new Set();let lines=0;
+    for(let y=0;y<SZ;y++)if(g[y].every(v=>v)){lines++;for(let x=0;x<SZ;x++)full.add(y*SZ+x)}
+    for(let x=0;x<SZ;x++){let ok=true;for(let y=0;y<SZ;y++)if(!g[y][x])ok=false;if(ok){lines++;for(let y=0;y<SZ;y++)full.add(y*SZ+x)}}
+    const res={full:[...full],lines,mult:1,pts:0,perfect:false};
+    if(!lines){if(++this.miss>=3)this.streak=0}
+    else{
+      this.streak++;this.miss=0;res.mult=Math.min(this.streak,10);
+      res.pts=lines*lines*20*res.mult+(lines>1?(lines-1)*30:0);this.score+=res.pts;
+      full.forEach(k=>{g[k>>3][k&7]=0});
+      if(g.every(row=>row.every(v=>!v))){this.score+=300;res.perfect=true}
+    }
+    if(this.pieces.every(q=>!q))this.pieces=deal(this.R,g);
+    this.over=!this.pieces.some(q=>q&&anyFitAt(g,q));
+    return res;
+  }
+}
+/*CORE:END*/
 
-let miss=0,g,score,best=0,hint=new Set(),placed=new Set(),pieces,pv=new Set(),pvk=1,clearing=new Set(),over=false,streak=0,drag=null,busy=false;
+let GM=null,MV=[],SEED=0,GID=null,T0=0,miss=0,g,score,best=0,hint=new Set(),placed=new Set(),pieces,pv=new Set(),pvk=1,clearing=new Set(),over=false,streak=0,drag=null,busy=false;
 const NP=!!(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform());
 const PL=NP&&Capacitor.Plugins?Capacitor.Plugins:{};
 const buzz=st=>{if(!set.vib)return;try{PL.Haptics?PL.Haptics.impact({style:st}):navigator.vibrate&&navigator.vibrate(st==='LIGHT'?8:25)}catch(e){}};
@@ -185,29 +215,46 @@ cx.globalCompositeOperation='source-over';cx.globalAlpha=1;raf=(ps.length||rg.le
 function kvset(k,v){try{localStorage.setItem(k,v)}catch(e){}try{PL.Preferences&&PL.Preferences.set({key:k,value:v})}catch(e){}}
 async function kvget(k){let v=null;try{v=localStorage.getItem(k)}catch(e){}try{if(PL.Preferences){const r=await PL.Preferences.get({key:k});if(r.value!=null)v=r.value}}catch(e){}return v}
 let saved=null,name='';
-function saveGame(){if(over)return;saved={g,score,streak,miss,pieces};kvset('bb-save',JSON.stringify(saved))}
+function saveGame(){if(over)return;saved={seed:SEED,gid:GID,moves:MV.slice(),t0:T0,score};kvset('bb-save',JSON.stringify(saved))}
 function clearSave(){saved=null;kvset('bb-save','')}
-async function loadSave(){try{const v=await kvget('bb-save');if(v){const o=JSON.parse(v);if(Array.isArray(o.g)&&o.g.length===8&&o.g.every(r=>r.length===8)&&Array.isArray(o.pieces)&&o.pieces.length===3&&o.pieces.some(p=>p&&p.a)&&o.score>=0)saved=o}}catch(e){}}
-function resume(o){g=o.g;score=o.score|0;streak=o.streak|0;miss=o.miss|0;pieces=o.pieces;over=false;busy=false;clearing=new Set();hint=new Set();placed=new Set();$('over').hidden=true;tray('all');draw()}
-function showName(){$('mname').textContent='👤 '+(name||'—');$('nmv').textContent=name||'—'}
+async function loadSave(){try{const v=await kvget('bb-save');if(v){const o=JSON.parse(v);if(o&&Number.isInteger(o.seed)&&Array.isArray(o.moves)&&o.moves.length&&o.score>=0)saved=o}}catch(e){}}
+function resume(o){SEED=o.seed|0;GID=o.gid||null;T0=o.t0||Date.now();GM=new Game(SEED);MV=[];for(const m of o.moves){if(!GM.move(m[0],m[1],m[2]))break;MV.push(m)}g=GM.g.map(r=>r.slice());pieces=GM.pieces.slice();score=GM.score;streak=GM.streak;miss=GM.miss;over=false;busy=false;clearing=new Set();hint=new Set();placed=new Set();$('over').hidden=true;tray('all');draw()}
+function showName(){$('mname').textContent='👤 '+(name||'—')+(me&&me.rank?'  ·  #'+me.rank:'');$('nmv').textContent=name||'—'}
 async function loadName(){const v=await kvget('bb-name');if(v)name=v;showName()}
 function askName(first){$('nt').textContent=first?'Adını seç':'İsmi değiştir';$('ne').textContent='Lider tablosunda bu isim görünür.';$('ni').value=name;$('nx').hidden=first;$('nm').hidden=false;setTimeout(()=>$('ni').focus(),60)}
-let LBM='local',DB=null,UID=null,lbSent=0;
-async function lbInit(){try{if(window.claude&&claude.use){const r=await Promise.all([claude.use('db'),claude.use('user')]);if(r[0]&&r[1]){const id=await r[1].id();if(id){DB=r[0];UID=id;LBM='online'}}}}catch(e){}}
+const API_URL='';   // Cloudflare Worker adresin, örn: 'https://blok-patlat-api.hesabin.workers.dev'  (boşsa çevrimdışı mod)
+let LBM='local',DB=null,UID=null,lbSent=0,tok='',me=null,tkt=null,tktP=null,lbTotal=0;
+async function getTok(){if(tok)return tok;let v=await kvget('bb-tok');if(!/^[0-9a-f]{64}$/.test(v||'')){v=[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,'0')).join('');kvset('bb-tok',v)}return tok=v}
+async function api(path,body){const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),8000);try{const r=await fetch(API_URL+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Authorization:'Bearer '+await getTok()},body:body?JSON.stringify(body):undefined,signal:ctl.signal});const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.error||'hata');e.status=r.status;e.code=j.error;throw e}return j}finally{clearTimeout(t)}}
+async function lbInit(){if(API_URL){LBM='remote';return}try{if(window.claude&&claude.use){const r=await Promise.all([claude.use('db'),claude.use('user')]);if(r[0]&&r[1]){const id=await r[1].id();if(id){DB=r[0];UID=id;LBM='online'}}}}catch(e){}}
+async function syncMe(){try{const j=await api('/api/top?limit=1');me=j.me;if(me){name=me.name;kvset('bb-name',name);if(me.best>best){best=me.best;saveBest()}showName();draw()}else if(name){try{const r=await api('/api/register',{name});name=r.name}catch(e){if(e.code==='name_taken'||e.code==='bad_name'){name='';askName(true);$('ne').textContent='Bu isim alınmış, yeni bir isim seç.'}}}}catch(e){}}
+function prefetchTicket(){if(LBM!=='remote'||!name||tkt||tktP)return;tktP=api('/api/start',{}).then(j=>{tkt={gid:j.gid,seed:j.seed}}).catch(()=>{}).finally(()=>{tktP=null})}
+async function getTicket(){if(LBM!=='remote')return null;if(!tkt){prefetchTicket();await Promise.race([tktP||Promise.resolve(),new Promise(r=>setTimeout(r,2500))])}const t=tkt;tkt=null;return t||null}
+async function submitJob(j){try{const r=await api('/api/submit',{gid:j.gid,moves:j.moves});me=Object.assign(me||{},{name,best:r.best,rank:r.rank});if(r.best>best){best=r.best;saveBest()}showName();return 'ok'}catch(e){return e.status?'drop':'retry'}}
+async function remoteSubmit(final){if(!GID||!MV.length)return;const j={gid:GID,moves:MV.slice()};if(final)GID=null;const r=await submitJob(j);if(final&&r==='retry'){const l=JSON.parse(await kvget('bb-pend')||'[]');l.push(j);kvset('bb-pend',JSON.stringify(l.slice(-5)))}}
+async function flushPending(){try{const l=JSON.parse(await kvget('bb-pend')||'[]'),keep=[];for(const j of l){if(await submitJob(j)==='retry')keep.push(j)}kvset('bb-pend',JSON.stringify(keep))}catch(e){}}
 async function lbSubmit(sc,fin){
-  await lbReady;if(!name||!(sc>0))return;
+  await lbReady;if(LBM==='remote'){remoteSubmit(!!fin);return}
+  if(!name||!(sc>0))return;
   try{
     if(LBM==='online'){if(sc<=lbSent)return;const ref=DB.doc('scores/'+UID),sn=await ref.get(),old=sn.exists?(+sn.data().score||0):0;lbSent=Math.max(sc,old);if(sc>old||!sn.exists)await ref.set({name,score:Math.max(sc,old),t:Date.now()})}
     else if(fin){const l=JSON.parse(await kvget('bb-lb')||'[]');l.push({name,score:sc,t:Date.now()});l.sort((a,b)=>b.score-a.score);kvset('bb-lb',JSON.stringify(l.slice(0,10)))}
   }catch(e){}
 }
-async function lbRename(){await lbReady;try{if(LBM==='online'){const ref=DB.doc('scores/'+UID),sn=await ref.get();if(sn.exists)await ref.update({name})}else{const l=JSON.parse(await kvget('bb-lb')||'[]');l.forEach(x=>x.name=name);kvset('bb-lb',JSON.stringify(l))}}catch(e){}}
-async function lbTop(){if(LBM==='online'){const q=await DB.collection('scores').orderBy('score','desc').limit(20).get();return q.docs.map(d=>Object.assign({id:d.id},d.data()))}return JSON.parse(await kvget('bb-lb')||'[]')}
+async function lbRename(){await lbReady;if(LBM==='remote')return;try{if(LBM==='online'){const ref=DB.doc('scores/'+UID),sn=await ref.get();if(sn.exists)await ref.update({name})}else{const l=JSON.parse(await kvget('bb-lb')||'[]');l.forEach(x=>x.name=name);kvset('bb-lb',JSON.stringify(l))}}catch(e){}}
+async function lbTop(){
+  if(LBM==='remote'){const j=await api('/api/top?limit=20');me=j.me||me;lbTotal=j.total||0;if(me&&me.best>best){best=me.best;saveBest()}showName();return j.top}
+  if(LBM==='online'){const q=await DB.collection('scores').orderBy('score','desc').limit(20).get();return q.docs.map(d=>Object.assign({id:d.id},d.data()))}
+  return JSON.parse(await kvget('bb-lb')||'[]')
+}
 async function openLB(){
   $('lb').hidden=false;const ul=$('lbl');ul.innerHTML='';$('lbn').textContent='Yükleniyor…';
-  await lbReady;let rows=[];try{rows=await lbTop()}catch(e){}
-  $('lbn').textContent=(LBM==='online'?'Herkesin en iyi skorları':'Bu cihazdaki en iyi oyunların')+(rows.length?'':' – henüz skor yok');
-  rows.forEach((x,i)=>{const li=document.createElement('li');if(x.id&&x.id===UID)li.className='me';[['r',['🥇','🥈','🥉'][i]||i+1],['n',x.name||'?'],['s',x.score]].forEach(([c,v])=>{const e=document.createElement('span');e.className=c;e.textContent=v;li.appendChild(e)});ul.appendChild(li)});
+  await lbReady;let rows=[],fail=0;try{rows=await lbTop()}catch(e){fail=1}
+  const R=LBM==='remote';
+  $('lbn').textContent=fail?'Sunucuya ulaşılamadı. İnternetini kontrol et.':R?'Dünya sıralaması · '+lbTotal+' oyuncu'+(me&&me.rank?' · Senin sıran #'+me.rank:''):(LBM==='online'?'Herkesin en iyi skorları':'Bu cihazdaki en iyi oyunların')+(rows.length?'':' – henüz skor yok');
+  const add=(rk,nm,sc,mine)=>{const li=document.createElement('li');if(mine)li.className='me';[['r',['🥇','🥈','🥉'][rk-1]||rk],['n',nm||'?'],['s',sc]].forEach(([c,v])=>{const e=document.createElement('span');e.className=c;e.textContent=v;li.appendChild(e)});ul.appendChild(li)};
+  rows.forEach((x,i)=>add(x.rank||i+1,x.name,x.score,x.me||(x.id&&x.id===UID)));
+  if(R&&me&&me.best>0&&me.rank>rows.length&&!rows.some(x=>x.me)){const li=document.createElement('li');li.textContent='⋯';li.style.justifyContent='center';ul.appendChild(li);add(me.rank,me.name,me.best,true)}
 }
 const board=$('board'),cells=[];
 for(let i=0;i<64;i++){const d=document.createElement('div');d.className='cell';board.appendChild(d);cells.push(d)}
@@ -239,8 +286,8 @@ function tray(mode){
     t.appendChild(s);
   });
 }
-const fits=(a,r,c)=>a.every(([y,x])=>{const rr=r+y,cc=c+x;return rr>=0&&rr<N&&cc>=0&&cc<N&&!g[rr][cc]});
-function anyFit(p){for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(fits(p.a,r,c))return true;return false}
+const fits=(a,r,c)=>fitsAt(g,a,r,c);
+function anyFit(p){return anyFitAt(g,p)}
 
 function start(e,i){
   if(over||busy||!pieces[i])return;
@@ -274,16 +321,15 @@ addEventListener('pointerup',end);
 addEventListener('pointercancel',end);
 
 function place(i,r,c){
-  const p=pieces[i];
+  const p=pieces[i],res=GM.move(i,r,c);
+  if(!res){tray(i);draw();return}
+  MV.push([i,r,c]);
   p.a.forEach(([y,x])=>g[r+y][c+x]=p.col);
-  pieces[i]=null;score+=p.a.length*2;buzz('LIGHT');snd('place');placed=new Set(p.a.map(([y,x])=>(r+y)*8+c+x));setTimeout(()=>{placed=new Set()},320);
-  const full=new Set();let lines=0;
-  for(let y=0;y<N;y++)if(g[y].every(v=>v)){lines++;for(let x=0;x<N;x++)full.add(y*8+x)}
-  for(let x=0;x<N;x++){let ok=true;for(let y=0;y<N;y++)if(!g[y][x])ok=false;if(ok){lines++;for(let y=0;y<N;y++)full.add(y*8+x)}}
-  if(!lines){if(++miss>=3)streak=0;after();return}
-  streak++;miss=0;buzz('MEDIUM');snd('clear',lines);if(lines>1||streak>2){$('wrap').classList.add('shake');setTimeout(()=>$('wrap').classList.remove('shake'),400)}
-  const mult=Math.min(streak,10),pts=lines*lines*20*mult+(lines>1?(lines-1)*30:0);
-  score+=pts;
+  pieces[i]=null;score=GM.score;streak=GM.streak;miss=GM.miss;buzz('LIGHT');snd('place');placed=new Set(p.a.map(([y,x])=>(r+y)*8+c+x));setTimeout(()=>{placed=new Set()},320);
+  const full=new Set(res.full),lines=res.lines;
+  if(!lines){after();return}
+  buzz('MEDIUM');snd('clear',lines);if(lines>1||streak>2){$('wrap').classList.add('shake');setTimeout(()=>$('wrap').classList.remove('shake'),400)}
+  const mult=res.mult,pts=res.pts;
   say(['','Güzel!','Harika!','Muhteşem!','İnanılmaz!'][Math.min(lines,4)]+' +'+pts+(mult>1?'  ×'+mult+' kombo':''),Math.min(28+lines*4+mult*3,56));
   const cr=r+p.a.reduce((a,q)=>a+q[0],0)/p.a.length,cc=c+p.a.reduce((a,q)=>a+q[1],0)/p.a.length;let mx=0;
   full.forEach(k=>{const dl=Math.round((Math.abs((k>>3)-cr)+Math.abs((k&7)-cc))*30),col=COL[g[k>>3][k&7]];cells[k].style.animationDelay=dl+'ms';setTimeout(()=>burst(k,col,lines>1?13:9),dl);mx=Math.max(mx,dl)});
@@ -291,24 +337,27 @@ function place(i,r,c){
   if(lines>1){$('board').classList.add('flash');setTimeout(()=>$('board').classList.remove('flash'),360)}
   busy=true;clearing=full;draw();
   setTimeout(()=>{full.forEach(k=>{g[k>>3][k&7]=0;cells[k].style.animationDelay=''});clearing=new Set();busy=false;
-    if(g.every(row=>row.every(v=>!v))){score+=300;say('Tam temizlik! +300',44);snd('clear',4)}
+    if(res.perfect){say('Tam temizlik! +300',44);snd('clear',4)}
     after()},340+mx);
 }
 function after(){
   if(score>best){best=score;saveBest()}
-  let nw=0;if(pieces.every(p=>!p)){pieces=deal();nw=1}
+  let nw=0;if(pieces.every(p=>!p)){pieces=GM.pieces.slice();nw=1}
   tray(nw?'all':-1);draw();saveGame();
-  if(!pieces.some(p=>p&&anyFit(p))){over=true;clearSave();lbSubmit(score,true);buzz('HEAVY');snd('over');$('final').textContent=score;$('over').hidden=false}
+  if(GM.over){over=true;clearSave();lbSubmit(score,true);buzz('HEAVY');snd('over');$('final').textContent=score;$('over').hidden=false;prefetchTicket()}
 }
 function say(t,sz){const m=$('msg');m.textContent=t;m.style.fontSize=(sz||30)+'px';m.classList.remove('show');void m.offsetWidth;m.classList.add('show')}
-function newGame(keep){
-  g=Array.from({length:N},()=>Array(N).fill(0));
-  score=0;streak=0;miss=0;over=false;busy=false;clearing=new Set();
+function newGame(keep,tk){
+  const t=tk||{gid:null,seed:(Math.random()*4294967296)|0};
+  SEED=t.seed|0;GID=t.gid;MV=[];T0=Date.now();GM=new Game(SEED);
+  g=GM.g.map(r=>r.slice());pieces=GM.pieces.slice();
+  score=0;streak=0;miss=0;over=false;busy=false;clearing=new Set();hint=new Set();placed=new Set();
   $('over').hidden=true;
-  if(!keep)clearSave();pieces=deal();tray('all');draw();
+  if(!keep)clearSave();tray('all');draw();
 }
-$('again').addEventListener('click',()=>newGame());
-const showMenu=()=>{$('over').hidden=true;$('set').hidden=true;$('lb').hidden=true;$('rs').hidden=true;$('menu').hidden=false;lbSubmit(best,false)};
+async function startNew(){const tk=await getTicket();newGame(false,tk);if(LBM==='remote'&&!tk)say('Çevrimdışı oyun: skor tabloya işlenmez',22)}
+$('again').addEventListener('click',()=>startNew());
+const showMenu=()=>{$('over').hidden=true;$('set').hidden=true;$('lb').hidden=true;$('rs').hidden=true;$('menu').hidden=false;lbSubmit(best,false);prefetchTicket()};
 $('gear').addEventListener('click',()=>{$('set').hidden=false});
 $('gearM').addEventListener('click',()=>{$('set').hidden=false});
 $('setok').addEventListener('click',()=>{$('set').hidden=true});
@@ -316,15 +365,19 @@ $('setok').addEventListener('click',()=>{$('set').hidden=true});
 document.addEventListener('click',e=>{if(e.target.closest('button'))snd('click')});
 addEventListener('pointerdown',ac,{once:true});
 (()=>{const b=$('bgfx');for(let i=0;i<16;i++){const d=document.createElement('div'),z=18+Math.random()*34;d.className='fb cell k'+(1+i%7);d.style.cssText='width:'+z+'px;left:'+Math.random()*100+'%;animation-duration:'+(9+Math.random()*10)+'s;animation-delay:-'+Math.random()*15+'s';b.appendChild(d)}})();
-$('play').addEventListener('click',async()=>{await ready;if(!name){askName(true);return}if(saved){$('rsc').textContent=saved.score;$('rs').hidden=false}else{$('menu').hidden=true;newGame()}});
+$('play').addEventListener('click',async()=>{await ready;if(!name){askName(true);return}if(saved){$('rsc').textContent=saved.score;$('rs').hidden=false}else{$('menu').hidden=true;startNew()}});
 $('rcont').addEventListener('click',()=>{$('rs').hidden=true;$('menu').hidden=true;resume(saved)});
-$('rnew').addEventListener('click',()=>{$('rs').hidden=true;$('menu').hidden=true;newGame()});
+$('rnew').addEventListener('click',()=>{$('rs').hidden=true;$('menu').hidden=true;startNew()});
 $('lbm').addEventListener('click',openLB);
 $('lbok').addEventListener('click',()=>{$('lb').hidden=true});
 $('rn').addEventListener('click',()=>{$('set').hidden=true;askName(false)});
 $('nx').addEventListener('click',()=>{$('nm').hidden=true});
 $('ni').addEventListener('keydown',e=>{if(e.key==='Enter')$('nok').click()});
-$('nok').addEventListener('click',()=>{const v=$('ni').value.replace(/\s+/g,' ').trim();if(v.length<2){$('ne').textContent='En az 2 karakter yaz.';return}name=v;kvset('bb-name',v);showName();$('nm').hidden=true;lbRename();lbSubmit(best,false)});
+$('nok').addEventListener('click',async()=>{
+  const v=$('ni').value.replace(/\s+/g,' ').trim();if(v.length<2){$('ne').textContent='En az 2 karakter yaz.';return}
+  if(LBM==='remote'){try{const j=await api('/api/register',{name:v});name=j.name}catch(e){$('ne').textContent=e.code==='name_taken'?'Bu isim alınmış, başka bir isim dene.':e.code==='bad_name'?'2–12 karakter; harf, rakam, boşluk, _ . - kullan.':e.status===429?'Biraz bekleyip tekrar dene.':'Sunucuya ulaşılamadı. İnternetini kontrol et.';return}}else name=v;
+  kvset('bb-name',name);showName();$('nm').hidden=true;lbRename();lbSubmit(best,false);prefetchTicket();
+});
 $('home').addEventListener('click',showMenu);
 $('tomenu').addEventListener('click',showMenu);
 ['contextmenu','gesturestart','dblclick'].forEach(t=>addEventListener(t,e=>e.preventDefault()));
@@ -332,7 +385,7 @@ addEventListener('resize',()=>{if(!drag)tray()});
 newGame(true);syncSet();
 const lbReady=lbInit();
 const ready=Promise.all([loadBest(),loadSet(),loadName(),loadSave()]);
-ready.then(()=>{if(!name)askName(true)});
+ready.then(async()=>{await lbReady;if(LBM==='remote')await syncMe();if(!name){askName(true);return}prefetchTicket();flushPending();if(LBM==='remote'&&saved&&saved.gid&&saved.moves.length)submitJob({gid:saved.gid,moves:saved.moves})});
 })();
 </script>
 </body>
