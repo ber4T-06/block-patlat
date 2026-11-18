@@ -131,6 +131,8 @@ html,body{background:radial-gradient(circle at 15% 0%,rgba(255,46,99,.3),transpa
 #rec{background:linear-gradient(135deg,#ffb300,#ff4fd8);border:0;box-shadow:0 6px 18px rgba(255,79,216,.5);color:#fff}
 #rec span,#rec small{color:rgba(255,255,255,.92)}
 @media (prefers-reduced-motion:reduce){#menu,.sub,#play::after,.sp{animation:none!important}}
+#ofl{background:#ff2e63;color:#fff;border-radius:10px;padding:5px 10px;font-size:13px;text-align:center}
+#dgo{white-space:pre-line;text-align:left;font-size:13px}
 @media (max-height:600px){.hint{display:none}}
 @media (prefers-reduced-motion:reduce){.cell.clr,#msg.show{animation:none}}
 </style>
@@ -141,6 +143,7 @@ html,body{background:radial-gradient(circle at 15% 0%,rgba(255,46,99,.3),transpa
     <div class="ttl"><button id="home" aria-label="Ana menü">⌂</button><button id="gear" aria-label="Ayarlar">⚙</button><h1 class="sr">Blok Patlat</h1></div>
     <div class="scores"><div><span>Skor</span><b id="score">0</b></div><div><span>En iyi</span><b id="best">0</b></div></div>
   </header>
+  <div id="ofl" hidden>⚠ Çevrimdışı oyun: skor tabloya işlenmez</div>
   <div id="wrap">
     <div id="board"></div>
     <div id="msg"></div>
@@ -160,6 +163,8 @@ html,body{background:radial-gradient(circle at 15% 0%,rgba(255,46,99,.3),transpa
   <div class="row"><span>🔊 Ses</span><button class="sw" id="t-snd" role="switch" aria-checked="true" aria-label="Ses"></button></div>
   <div class="row"><span>📳 Titreşim</span><button class="sw" id="t-vib" role="switch" aria-checked="true" aria-label="Titreşim"></button></div>
   <div class="row"><span>✏️ <b id="nmv"></b></span><button id="rn" class="pill">Değiştir</button></div>
+  <div class="row"><span>🔌 Sunucu</span><button id="dg" class="pill">Test et</button></div>
+  <p class="note" id="dgo"></p>
   <button id="setok">Tamam</button></div></div>
 <div id="nm" hidden><div class="card"><h2 id="nt">Adını seç</h2>
   <input id="ni" maxlength="12" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Takma adın">
@@ -245,18 +250,20 @@ let saved=null,name='';
 function saveGame(){if(over)return;saved={seed:SEED,gid:GID,moves:MV.slice(),t0:T0,score};kvset('bb-save',JSON.stringify(saved))}
 function clearSave(){saved=null;kvset('bb-save','')}
 async function loadSave(){try{const v=await kvget('bb-save');if(v){const o=JSON.parse(v);if(o&&Number.isInteger(o.seed)&&Array.isArray(o.moves)&&o.moves.length&&o.score>=0)saved=o}}catch(e){}}
-function resume(o){SEED=o.seed|0;GID=o.gid||null;T0=o.t0||Date.now();GM=new Game(SEED);MV=[];for(const m of o.moves){if(!GM.move(m[0],m[1],m[2]))break;MV.push(m)}g=GM.g.map(r=>r.slice());pieces=GM.pieces.slice();score=GM.score;streak=GM.streak;miss=GM.miss;over=false;busy=false;clearing=new Set();hint=new Set();placed=new Set();$('over').hidden=true;tray('all');draw()}
+function resume(o){SEED=o.seed|0;GID=o.gid||null;T0=o.t0||Date.now();GM=new Game(SEED);MV=[];for(const m of o.moves){if(!GM.move(m[0],m[1],m[2]))break;MV.push(m)}g=GM.g.map(r=>r.slice());pieces=GM.pieces.slice();score=GM.score;streak=GM.streak;miss=GM.miss;over=false;busy=false;clearing=new Set();hint=new Set();placed=new Set();$('over').hidden=true;tray('all');draw();ofl()}
 function showName(){$('mname').textContent='👤 '+(name||'—')+(me&&me.rank?'  ·  #'+me.rank:'');$('nmv').textContent=name||'—'}
 async function loadName(){const v=await kvget('bb-name');if(v)name=v;showName()}
 function askName(first){$('nt').textContent=first?'Adını seç':'İsmi değiştir';$('ne').textContent='Lider tablosunda bu isim görünür.';$('ni').value=name;$('nx').hidden=first;$('nm').hidden=false;setTimeout(()=>$('ni').focus(),60)}
-const API_URL='';   // Cloudflare Worker adresin, örn: 'https://blok-patlat-api.hesabin.workers.dev'  (boşsa çevrimdışı mod)
+const API_URL='';   // Cloudflare Worker adresin, örn: 'https://blok-patlat-api.hesabin.workers.dev'  (boşsa YALNIZCA bu cihazın yerel tablosu çalışır)
+const API_BASE=API_URL.trim()?(/^https?:\/\//i.test(API_URL.trim())?API_URL.trim():'https://'+API_URL.trim()).replace(/\/+$/,''):'';
 let LBM='local',DB=null,UID=null,lbSent=0,tok='',me=null,tkt=null,tktP=null,lbTotal=0;
 async function getTok(){if(tok)return tok;let v=await kvget('bb-tok');if(!/^[0-9a-f]{64}$/.test(v||'')){v=[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,'0')).join('');kvset('bb-tok',v)}return tok=v}
-async function api(path,body){const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),8000);try{const r=await fetch(API_URL+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Authorization:'Bearer '+await getTok()},body:body?JSON.stringify(body):undefined,signal:ctl.signal});const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.error||'hata');e.status=r.status;e.code=j.error;throw e}return j}finally{clearTimeout(t)}}
-async function lbInit(){if(API_URL){LBM='remote';return}try{if(window.claude&&claude.use){const r=await Promise.all([claude.use('db'),claude.use('user')]);if(r[0]&&r[1]){const id=await r[1].id();if(id){DB=r[0];UID=id;LBM='online'}}}}catch(e){}}
+async function api(path,body){const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),8000);try{const r=await fetch(API_BASE+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Authorization:'Bearer '+await getTok()},body:body?JSON.stringify(body):undefined,signal:ctl.signal});const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.error||'hata');e.status=r.status;e.code=j.error;throw e}return j}finally{clearTimeout(t)}}
+async function lbInit(){if(API_BASE){LBM='remote';return}try{if(window.claude&&claude.use){const r=await Promise.all([claude.use('db'),claude.use('user')]);if(r[0]&&r[1]){const id=await r[1].id();if(id){DB=r[0];UID=id;LBM='online'}}}}catch(e){}}
 async function syncMe(){try{const j=await api('/api/top?limit=1');me=j.me;if(me){name=me.name;kvset('bb-name',name);if(me.best>best){best=me.best;saveBest()}showName();draw()}else if(name){try{const r=await api('/api/register',{name});name=r.name}catch(e){if(e.code==='name_taken'||e.code==='bad_name'){name='';askName(true);$('ne').textContent='Bu isim alınmış, yeni bir isim seç.'}}}}catch(e){}}
 function prefetchTicket(){if(LBM!=='remote'||!name||tkt||tktP)return;tktP=api('/api/start',{}).then(j=>{tkt={gid:j.gid,seed:j.seed}}).catch(()=>{}).finally(()=>{tktP=null})}
-async function getTicket(){if(LBM!=='remote')return null;if(!tkt){prefetchTicket();await Promise.race([tktP||Promise.resolve(),new Promise(r=>setTimeout(r,2500))])}const t=tkt;tkt=null;return t||null}
+async function getTicket(){if(LBM!=='remote')return null;for(let k=0;k<2&&!tkt;k++){prefetchTicket();await Promise.race([tktP||Promise.resolve(),new Promise(r=>setTimeout(r,k?4000:2500))]);if(!tkt&&!k)await syncMe()}const t=tkt;tkt=null;return t||null}
+function ofl(){$('ofl').hidden=!(LBM==='remote'&&!GID)}
 async function submitJob(j){try{const r=await api('/api/submit',{gid:j.gid,moves:j.moves});me=Object.assign(me||{},{name,best:r.best,rank:r.rank});if(r.best>best){best=r.best;saveBest()}showName();return 'ok'}catch(e){return e.status?'drop':'retry'}}
 async function remoteSubmit(final){if(!GID||!MV.length)return;const j={gid:GID,moves:MV.slice()};if(final)GID=null;const r=await submitJob(j);if(final&&r==='retry'){const l=JSON.parse(await kvget('bb-pend')||'[]');l.push(j);kvset('bb-pend',JSON.stringify(l.slice(-5)))}}
 async function flushPending(){try{const l=JSON.parse(await kvget('bb-pend')||'[]'),keep=[];for(const j of l){if(await submitJob(j)==='retry')keep.push(j)}kvset('bb-pend',JSON.stringify(keep))}catch(e){}}
@@ -278,10 +285,21 @@ async function openLB(){
   $('lb').hidden=false;const ul=$('lbl');ul.innerHTML='';$('lbn').textContent='Yükleniyor…';
   await lbReady;let rows=[],fail=0;try{rows=await lbTop()}catch(e){fail=1}
   const R=LBM==='remote';
-  $('lbn').textContent=fail?'Sunucuya ulaşılamadı. İnternetini kontrol et.':R?'Dünya sıralaması · '+lbTotal+' oyuncu'+(me&&me.rank?' · Senin sıran #'+me.rank:''):(LBM==='online'?'Herkesin en iyi skorları':'Bu cihazdaki en iyi oyunların')+(rows.length?'':' – henüz skor yok');
+  $('lbn').textContent=fail?'Sunucuya ulaşılamadı. İnternetini kontrol et.':R?'Dünya sıralaması · '+lbTotal+' oyuncu'+(me&&me.rank?' · Senin sıran #'+me.rank:''):(LBM==='online'?'Herkesin en iyi skorları':'Bu cihazdaki en iyi oyunların'+(API_BASE?'':' ⚠ global tablo kapalı: API_URL boş'))+(rows.length?'':' – henüz skor yok');
   const add=(rk,nm,sc,mine)=>{const li=document.createElement('li');if(mine)li.className='me';[['r',['🥇','🥈','🥉'][rk-1]||rk],['n',nm||'?'],['s',sc]].forEach(([c,v])=>{const e=document.createElement('span');e.className=c;e.textContent=v;li.appendChild(e)});ul.appendChild(li)};
   rows.forEach((x,i)=>add(x.rank||i+1,x.name,x.score,x.me||(x.id&&x.id===UID)));
   if(R&&me&&me.best>0&&me.rank>rows.length&&!rows.some(x=>x.me)){const li=document.createElement('li');li.textContent='⋯';li.style.justifyContent='center';ul.appendChild(li);add(me.rank,me.name,me.best,true)}
+}
+async function diag(){
+  const o=$('dgo'),L=[];o.textContent='Test ediliyor…';
+  L.push(API_BASE?'Adres: '+API_BASE.replace(/^https?:\/\//,''):'⚠ API_URL boş → yalnızca bu cihaz (global tablo kapalı)');
+  try{localStorage.setItem('bb-t','1');localStorage.removeItem('bb-t');L.push('Depolama: ✓')}catch(e){L.push('⚠ Kalıcı depolama kapalı (gizli sekme?)')}
+  if(API_BASE){
+    try{const h=await api('/api/health');L.push(h.db?'Veritabanı: ✓ ('+h.players+' oyuncu kayıtlı)':'⚠ Veritabanı: '+(h.hint||'yok'));
+      const t=await api('/api/top?limit=1');L.push(t.me?'Bu cihaz kayıtlı: ✓ '+t.me.name+(t.me.rank?' (#'+t.me.rank+')':''):'⚠ Bu cihaz sunucuda kayıtlı değil');L.push('Skoru olan oyuncu: '+t.total)}
+    catch(e){L.push(e.status?'⚠ Sunucu cevabı: '+(e.code||e.status):'⚠ Sunucuya ulaşılamıyor (adres yanlış mı? CORS izni var mı?)')}
+  }
+  o.textContent=L.join('\n');
 }
 const board=$('board'),cells=[];
 for(let i=0;i<64;i++){const d=document.createElement('div');d.className='cell';board.appendChild(d);cells.push(d)}
@@ -380,7 +398,7 @@ function newGame(keep,tk){
   g=GM.g.map(r=>r.slice());pieces=GM.pieces.slice();
   score=0;streak=0;miss=0;over=false;busy=false;clearing=new Set();hint=new Set();placed=new Set();
   $('over').hidden=true;
-  if(!keep)clearSave();tray('all');draw();
+  if(!keep)clearSave();tray('all');draw();ofl();
 }
 async function startNew(){const tk=await getTicket();newGame(false,tk);if(LBM==='remote'&&!tk)say('Çevrimdışı oyun: skor tabloya işlenmez',22)}
 $('again').addEventListener('click',()=>startNew());
@@ -396,13 +414,14 @@ $('play').addEventListener('click',async()=>{await ready;if(!name){askName(true)
 $('rcont').addEventListener('click',()=>{$('rs').hidden=true;$('menu').hidden=true;resume(saved)});
 $('rnew').addEventListener('click',()=>{$('rs').hidden=true;$('menu').hidden=true;startNew()});
 $('lbm').addEventListener('click',openLB);
+$('dg').addEventListener('click',diag);
 $('lbok').addEventListener('click',()=>{$('lb').hidden=true});
 $('rn').addEventListener('click',()=>{$('set').hidden=true;askName(false)});
 $('nx').addEventListener('click',()=>{$('nm').hidden=true});
 $('ni').addEventListener('keydown',e=>{if(e.key==='Enter')$('nok').click()});
 $('nok').addEventListener('click',async()=>{
   const v=$('ni').value.replace(/\s+/g,' ').trim();if(v.length<2){$('ne').textContent='En az 2 karakter yaz.';return}
-  if(LBM==='remote'){try{const j=await api('/api/register',{name:v});name=j.name}catch(e){$('ne').textContent=e.code==='name_taken'?'Bu isim alınmış, başka bir isim dene.':e.code==='bad_name'?'2–12 karakter; harf, rakam, boşluk, _ . - kullan.':e.status===429?'Biraz bekleyip tekrar dene.':'Sunucuya ulaşılamadı. İnternetini kontrol et.';return}}else name=v;
+  if(LBM==='remote'){try{const j=await api('/api/register',{name:v});name=j.name}catch(e){$('ne').textContent=e.code==='name_taken'?'Bu isim alınmış, başka bir isim dene.':e.code==='bad_name'?'2–12 karakter; harf, rakam, boşluk, _ . - kullan.':e.status===429?'Biraz bekleyip tekrar dene.':e.code==='schema_missing'?'Sunucu veritabanı kurulmamış (db:init).':e.status?'Sunucu hatası ('+(e.code||e.status)+').':'Sunucuya ulaşılamadı (adres veya CORS ayarı). Ayarlar > Sunucu testini dene.';return}}else name=v;
   kvset('bb-name',name);showName();$('nm').hidden=true;lbRename();lbSubmit(best,false);prefetchTicket();
 });
 $('home').addEventListener('click',showMenu);
